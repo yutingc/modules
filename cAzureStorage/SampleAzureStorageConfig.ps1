@@ -65,7 +65,7 @@ Configuration SampleAzureStorageStorageConfig {
           
     ) 
  
-    Import-DscResource -Module cAzureStorage  -ModuleVersion 1.0
+    Import-DscResource -Module cAzureStorage  -ModuleVersion 1.0.0.0
  
     Node $NodeName { 
  
