@@ -27,17 +27,18 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
-    <Content Include="DSCResources\cAzureStorage\cAzureStorage.schema.mof" />
-    <Content Include="Microsoft.WindowsAzure.Storage.dll" />
+    <Content Include="1.0.0.0\DSCResources\cAzureStorage\cAzureStorage.schema.mof" />
+    <Content Include="1.0.0.0\Microsoft.WindowsAzure.Storage.dll" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="cAzureStorage.psd1" />
-    <Compile Include="cAzureStorage.tests.ps1" />
-    <Compile Include="DSCResources\cAzureStorage\cAzureStorage.psm1" />
+    <Compile Include="1.0.0.0\cAzureStorage.psd1" />
+    <Compile Include="1.0.0.0\cAzureStorage.tests.ps1" />
+    <Compile Include="1.0.0.0\DSCResources\cAzureStorage\cAzureStorage.psm1" />
   </ItemGroup>
   <ItemGroup>
-    <Folder Include="DSCResources\" />
-    <Folder Include="DSCResources\cAzureStorage\" />
+    <Folder Include="1.0.0.0\DSCResources\" />
+    <Folder Include="1.0.0.0\DSCResources\cAzureStorage\" />
+    <Folder Include="1.0.0.0\" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <Target Name="Build" />
