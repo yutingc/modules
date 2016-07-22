@@ -10,6 +10,7 @@
 Microsoft.PowerShell.Core\Set-StrictMode -Version Latest
 
 Microsoft.PowerShell.Utility\Import-LocalizedData  LocalizedData -filename AzureAutomationRunbook.Resource.psd1
+$script:TempPath = ([System.IO.DirectoryInfo]$env:TEMP).FullName
 
 #region *-Runbook cmdlets
 function Publish-Runbook
@@ -99,7 +100,7 @@ function Publish-Runbook
             Publishes the specified graph runbook to the target repository.
 
             Following operations are performed by the Publish-AzureGraphRunbook cmdlet:
-            -	Checks for the existence of <Name>.graphrunbook file and folder name should be <Name>
+            -   Checks for the existence of <Name>.graphrunbook file; if path is directory, folder name should be <Name>.
             -	Validates the .graphrunbook file contents.
             -	Creates or Updates the PowerShell module manifest file using specified metadata parameters.
             -	Validates the existence of specified repository name. 
@@ -114,71 +115,137 @@ function Publish-Runbook
             return
         }
 
-        $GraphRunbookBase = Validate-AzureGraphRunbookFolder -Path $Path -CallerPSCmdlet $PSCmdlet
-
-        if($GraphRunbookBase)
+        $tempFolderPath = Microsoft.PowerShell.Management\Join-Path -Path $script:TempPath `
+                                  -ChildPath "$(Microsoft.PowerShell.Utility\Get-Random)"
+        #If the graphrunbook is not within any folder, we will copy it to a temp module location along with the manifest to publish
+        if($Path.EndsWith(".graphrunbook"))
         {
-            if($Repository)
+            if(Microsoft.PowerShell.Management\Test-Path $Path)
             {
-                $null = $PSBoundParameters.Remove('Repository')
-            }
+                $GraphRunbookBase = Microsoft.PowerShell.Management\Split-Path -Path $Path -Parent
+                $GraphRunbookFullName = Microsoft.PowerShell.Management\Split-Path -Path $Path -Leaf
+                $GraphRunbookName = [System.IO.Path]::GetFileNameWithoutExtension($GraphRunbookFullName)
+                $ManifestFileName = "$GraphRunbookName.psd1"
+                $ManifestFilePath = Join-Path -Path $GraphRunbookBase -ChildPath $ManifestFileName
 
-            if($NuGetApiKey)
-            {
-                $null = $PSBoundParameters.Remove('NuGetApiKey')
-            }
+                $tempModulePath = Microsoft.PowerShell.Management\Join-Path -Path $tempFolderPath -ChildPath $GraphRunbookName
+                #Create a new directory and copy .psd1 over
+                $null = Microsoft.PowerShell.Management\New-Item -Path $tempModulePath -ItemType Directory -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false -WhatIf:$false
+                Microsoft.PowerShell.Management\Copy-Item -Path $Path -Destination $tempModulePath -Force -Recurse -Confirm:$false -WhatIf:$false
+                
+                $PSBoundParameters['Path'] = "$tempModulePath\$ManifestFileName"
+                if((Microsoft.PowerShell.Management\Test-Path -Path $ManifestFilePath -PathType Leaf) -and
+                   (Microsoft.PowerShell.Core\Test-ModuleManifest -Path $ManifestFilePath -ErrorAction SilentlyContinue))
+                {
+                    Microsoft.PowerShell.Management\Copy-Item -Path $ManifestFilePath -Destination $tempModulePath -Force -Recurse -Confirm:$false -WhatIf:$false
+                
+                    Update-AzureGraphRunbookManifest @PSBoundParameters -ErrorVariable ev
+                }
+                else
+                {
+                    if(-not $Description)
+                    {                    
+                        $message = $LocalizedData.DescriptionParameterIsRequired -f ($GraphRunbookBase)
+                        ThrowError -ExceptionName 'System.ArgumentException' `
+                                   -ExceptionMessage $message `
+                                   -ErrorId 'DescriptionParameterIsRequired' `
+                                   -CallerPSCmdlet $PSCmdlet `
+                                   -ErrorCategory InvalidArgument `
+                                   -ExceptionObject $GraphRunbookBase
+                        return
+                    }
+                    if($Repository)
+                    {
+                        $null = $PSBoundParameters.Remove('Repository')
+                    }
 
-
-            $GraphRunbookName = Split-Path -Path $GraphRunbookBase -Leaf
-            $ModulePathWithVersion = $false
-        
-            # if the Leaf of the $resolvedPath is a version, use its parent folder name as the module name
-            $ModuleVersion = New-Object System.Version
-            if([System.Version]::TryParse($GraphRunbookName, ([ref]$ModuleVersion)))
-            {
-                $GraphRunbookName = Microsoft.PowerShell.Management\Split-Path -Path (Microsoft.PowerShell.Management\Split-Path $GraphRunbookBase -Parent) -Leaf
-                $modulePathWithVersion = $true
-            }
-
-            $GraphRunbookFileName = "$GraphRunbookName.graphrunbook"
-            $ManifestFileName = "$GraphRunbookName.psd1"
-
-            $GraphRunbookFilePath = Join-Path -Path $GraphRunbookBase -ChildPath $GraphRunbookFileName
-            $ManifestFilePath = Join-Path -Path $GraphRunbookBase -ChildPath $ManifestFileName
-
-            $ev = $null
-
-            if((Microsoft.PowerShell.Management\Test-Path -Path $ManifestFilePath -PathType Leaf) -and
-               (Microsoft.PowerShell.Core\Test-ModuleManifest -Path $ManifestFilePath -ErrorAction SilentlyContinue))
-            {
-                Update-AzureGraphRunbookManifest @PSBoundParameters -ErrorVariable ev
+                    if($NuGetApiKey)
+                    {
+                        $null = $PSBoundParameters.Remove('NuGetApiKey')
+                    }
+                    New-AzureGraphRunbookManifest @PSBoundParameters -ErrorVariable ev
+                }
+                $Path = $tempModulePath
             }
             else
             {
-                if(-not $Description)
-                {                    
-                    $message = $LocalizedData.DescriptionParameterIsRequired -f ($GraphRunbookBase)
-                    ThrowError -ExceptionName 'System.ArgumentException' `
-                               -ExceptionMessage $message `
-                               -ErrorId 'DescriptionParameterIsRequired' `
-                               -CallerPSCmdlet $PSCmdlet `
-                               -ErrorCategory InvalidArgument `
-                               -ExceptionObject $GraphRunbookBase
-                    return
-                }
-                if($modulePathWithVersion)
-                {
-                    $PSBoundParameters['Version'] = $ModuleVersion
-                }
-                New-AzureGraphRunbookManifest @PSBoundParameters -ErrorVariable ev
+                $message = $LocalizedData.PathNotFound -f ($Path)
+                ThrowError -ExceptionName 'System.ArgumentException' `
+                           -ExceptionMessage $message `
+                           -ErrorId 'GraphRunbookPathNotFound' `
+                           -CallerPSCmdlet $CallerPSCmdlet `
+                           -ErrorCategory InvalidArgument `
+                           -ExceptionObject $Path
+                return
             }
-
-            #if($ev)
-            #{
-            #   return
-            #}
         }
+        else
+        {
+            $GraphRunbookBase = Validate-AzureGraphRunbookFolder -Path $Path -CallerPSCmdlet $PSCmdlet
+        
+            if($GraphRunbookBase)
+            {
+                if($Repository)
+                {
+                    $null = $PSBoundParameters.Remove('Repository')
+                }
 
+                if($NuGetApiKey)
+                {
+                    $null = $PSBoundParameters.Remove('NuGetApiKey')
+                }
+
+                $GraphRunbookName = Microsoft.PowerShell.Management\Split-Path -Path $GraphRunbookBase -Leaf
+                $ModulePathWithVersion = $false
+
+                # if the Leaf of the $resolvedPath is a version, use its parent folder name as the module name
+                $ModuleVersion = New-Object System.Version
+                if([System.Version]::TryParse($GraphRunbookName, ([ref]$ModuleVersion)))
+                {
+                    $GraphRunbookName = Microsoft.PowerShell.Management\Split-Path -Path (Microsoft.PowerShell.Management\Split-Path $GraphRunbookBase -Parent) -Leaf
+                    $modulePathWithVersion = $true
+                }
+
+                $GraphRunbookFileName = "$GraphRunbookName.graphrunbook"
+                $ManifestFileName = "$GraphRunbookName.psd1"
+
+                $GraphRunbookFilePath = Join-Path -Path $GraphRunbookBase -ChildPath $GraphRunbookFileName
+                $ManifestFilePath = Join-Path -Path $GraphRunbookBase -ChildPath $ManifestFileName
+            
+                $PSBoundParameters['Path'] = $ManifestFilePath
+
+                $ev = $null
+                if((Microsoft.PowerShell.Management\Test-Path -Path $ManifestFilePath -PathType Leaf) -and
+                   (Microsoft.PowerShell.Core\Test-ModuleManifest -Path $ManifestFilePath -ErrorAction SilentlyContinue))
+                {
+                    Update-AzureGraphRunbookManifest @PSBoundParameters -ErrorVariable ev
+                }
+                else
+                {
+                    if(-not $Description)
+                    {                    
+                        $message = $LocalizedData.DescriptionParameterIsRequired -f ($GraphRunbookBase)
+                        ThrowError -ExceptionName 'System.ArgumentException' `
+                                   -ExceptionMessage $message `
+                                   -ErrorId 'DescriptionParameterIsRequired' `
+                                   -CallerPSCmdlet $PSCmdlet `
+                                   -ErrorCategory InvalidArgument `
+                                   -ExceptionObject $GraphRunbookBase
+                        return
+                    }
+                    if($modulePathWithVersion)
+                    {
+                        $PSBoundParameters['Version'] = $ModuleVersion
+                    }
+                    New-AzureGraphRunbookManifest @PSBoundParameters -ErrorVariable ev
+                }
+
+                if($ev)
+                {
+                   return
+                }
+            }
+        }
         $publishParameters = @{Path = $Path}
         if($Repository)
         {
@@ -192,12 +259,16 @@ function Publish-Runbook
 
         if(Validate-AzureGraphRunbookFolder -Path $Path -ValidateManifest -CallerPSCmdlet $PSCmdlet)
         {
-            $test = $publishParameters
             PowerShellGet\Publish-Module @publishParameters `
                                          -Verbose:$VerbosePreference `
                                          -Debug:$DebugPreference `
                                          -WarningAction $WarningPreference `
                                          -ErrorAction $ErrorActionPreference
+        }
+        #Remove temp module path
+        if(Test-Path $tempFolderPath)
+        {
+            Microsoft.PowerShell.Management\Remove-Item $tempFolderPath -Force -Recurse -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false -WhatIf:$false
         }
     }
 }
@@ -334,8 +405,28 @@ function Save-Runbook
     {
         $Null = $PSBoundParameters.Remove("Path")
         $RunbookToSave= Find-Runbook @PSBoundParameters  
-        $PSBoundParameters['Path'] = $Path
-        PowerShellGet\Save-Module @PSBoundParameters
+        # Save the runbook to temp location
+        $tempModulePath = Microsoft.PowerShell.Management\Join-Path -Path $script:TempPath `
+                              -ChildPath "$(Microsoft.PowerShell.Utility\Get-Random)"
+        $null = Microsoft.PowerShell.Management\New-Item -Path $tempModulePath -ItemType Directory -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false -WhatIf:$false
+        $PSBoundParameters['Path'] = $tempModulePath
+        try{
+            PowerShellGet\Save-Module @PSBoundParameters
+            #Only copy .graphrunbook to the destination folder
+            if(Microsoft.PowerShell.Management\Test-Path $tempModulePath)
+            {
+                $runbooks= Get-ChildItem –Path "$tempModulePath\*.graphrunbook" -Recurse -Force
+                foreach($runbook in $runbooks)
+                {
+                    Microsoft.PowerShell.Management\Copy-Item -Path $runbook.FullName -Destination $Path -Force -Recurse -Confirm:$false -WhatIf:$false
+                }
+            }
+        }
+        #Remove the temp folder
+        finally
+        {
+            Microsoft.PowerShell.Management\Remove-Item -Path $tempModulePath -Force -Recurse -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false -WhatIf:$false
+        }
     }
 }
 
@@ -557,23 +648,10 @@ function New-AzureGraphRunbookManifest
             $null = $PSBoundParameters.Remove('Version')
         }
 
-        $ModuleBasePath = Validate-AzureGraphRunbookFolder -Path $Path -CallerPSCmdlet $PSCmdlet
+        $ModuleBasePath = Split-Path $Path -Parent
+        $ModuleFullName = Split-Path $Path -Leaf
+        $GraphRunbookName = [System.IO.Path]::GetFileNameWithoutExtension($ModuleFullName)
 
-        if(-not $ModuleBasePath)
-        {
-            return
-        }
-
-        $GraphRunbookName = Split-Path -Path $ModuleBasePath -Leaf
-
-        # if the Leaf of the $resolvedPath is a version, use its parent folder name as the module name
-        $ModuleVersion = New-Object System.Version
-        if([System.Version]::TryParse($GraphRunbookName, ([ref]$ModuleVersion)))
-        {
-            $GraphRunbookName = Microsoft.PowerShell.Management\Split-Path -Path (Microsoft.PowerShell.Management\Split-Path $ModuleBasePath -Parent) -Leaf
-            $modulePathWithVersion = $true
-        }
-        
         $GraphRunbookFileName = "$GraphRunbookName.graphrunbook"
         $ManifestFileName = "$GraphRunbookName.psd1"
 
@@ -677,24 +755,10 @@ function Update-AzureGraphRunbookManifest
             $null = $PSBoundParameters.Remove('Version')
         }
 
-        $ModuleBasePath = Validate-AzureGraphRunbookFolder -Path $Path -ValidateManifest -CallerPSCmdlet $PSCmdlet
+        $ModuleBasePath = Split-Path $Path -Parent
+        $ModuleFullName = Split-Path $Path -Leaf
+        $GraphRunbookName = [System.IO.Path]::GetFileNameWithoutExtension($ModuleFullName)
 
-        if(-not $ModuleBasePath)
-        {
-            return
-        }
-
-        $GraphRunbookName = Split-Path -Path $ModuleBasePath -Leaf
-        $ModulePathWithVersion = $false
-        
-        # if the Leaf of the $resolvedPath is a version, use its parent folder name as the module name
-        $ModuleVersion = New-Object System.Version
-        if([System.Version]::TryParse($GraphRunbookName, ([ref]$ModuleVersion)))
-        {
-            $GraphRunbookName = Microsoft.PowerShell.Management\Split-Path -Path (Microsoft.PowerShell.Management\Split-Path $ModuleBasePath -Parent) -Leaf
-            $modulePathWithVersion = $true
-        }
-        
         $GraphRunbookFileName = "$GraphRunbookName.graphrunbook"
         $ManifestFileName = "$GraphRunbookName.psd1"
 
@@ -729,6 +793,7 @@ function Update-AzureGraphRunbookManifest
             return
         }
 
+        
         $Tags += $RunbookTags
         $PSBoundParameters['Tags'] = $Tags | Select-Object -Unique
         $PSBoundParameters['Path'] = $ManifestFilePath
