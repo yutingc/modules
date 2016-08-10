@@ -9,7 +9,7 @@
 
 Microsoft.PowerShell.Core\Set-StrictMode -Version Latest
 
-Microsoft.PowerShell.Utility\Import-LocalizedData  LocalizedData -filename AzureAutomationRunbook.Resource.psd1
+Microsoft.PowerShell.Utility\Import-LocalizedData  LocalizedData -filename Azure.Automation.Get.Resource.psd1
 $script:TempPath = ([System.IO.DirectoryInfo]$env:TEMP).FullName
 
 #region *-Runbook cmdlets

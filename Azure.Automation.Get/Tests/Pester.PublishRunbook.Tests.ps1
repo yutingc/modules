@@ -18,7 +18,7 @@ $Script:RunbookFolder = "$PSScriptRoot\TestRunbooks"
 $Script:TempSaveLocation = "$PSScriptRoot\TestSaveRepo"
 
 Install-NuGetBinaries
-Import-Module AzureAutomationRunbook -Scope:Local -PassThru
+Import-Module Azure.Automation.Get -Scope:Local -PassThru
 
 if(-not (Test-Path -Path $SourceLocation -PathType Container))
 {
